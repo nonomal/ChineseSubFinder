@@ -3,16 +3,19 @@ package v1
 import (
 	"errors"
 	"fmt"
-	"github.com/allanpk716/ChineseSubFinder/internal/dao"
-	"github.com/allanpk716/ChineseSubFinder/internal/models"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/decode"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/my_util"
-	"github.com/allanpk716/ChineseSubFinder/internal/types/backend"
-	"github.com/allanpk716/ChineseSubFinder/internal/types/common"
-	TTaskqueue "github.com/allanpk716/ChineseSubFinder/internal/types/task_queue"
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"path/filepath"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg"
+
+	backend2 "github.com/ChineseSubFinder/ChineseSubFinder/pkg/types/backend"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/types/common"
+	TTaskqueue "github.com/ChineseSubFinder/ChineseSubFinder/pkg/types/task_queue"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/internal/dao"
+	"github.com/ChineseSubFinder/ChineseSubFinder/internal/models"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/decode"
+	"github.com/gin-gonic/gin"
 )
 
 // AddJobHandler 外部 API 接口添加任务的处理
@@ -23,7 +26,7 @@ func (cb *ControllerBase) AddJobHandler(c *gin.Context) {
 		cb.ErrorProcess(c, "AddJobHandler", err)
 	}()
 
-	videoListAdd := backend.ReqVideoListAdd{}
+	videoListAdd := backend2.ReqVideoListAdd{}
 	err = c.ShouldBindJSON(&videoListAdd)
 	if err != nil {
 		return
@@ -32,9 +35,9 @@ func (cb *ControllerBase) AddJobHandler(c *gin.Context) {
 	if videoListAdd.IsBluray == false {
 		// 非蓝光的才需要检测这个文件存在
 		// 这里视频文件得要存在
-		if my_util.IsFile(videoListAdd.PhysicalVideoFileFullPath) == false {
+		if pkg.IsFile(videoListAdd.PhysicalVideoFileFullPath) == false {
 
-			c.JSON(http.StatusOK, backend.ReplyJobThings{
+			c.JSON(http.StatusOK, backend2.ReplyJobThings{
 				Message: "physical video file not found",
 			})
 			return
@@ -50,8 +53,9 @@ func (cb *ControllerBase) AddJobHandler(c *gin.Context) {
 	)
 
 	if videoListAdd.VideoType == 1 {
+		// 连续剧
 		// 连续剧的时候需要额外提交信息
-		torrentInfo, err := decode.GetVideoInfoFromFileName(videoListAdd.PhysicalVideoFileFullPath)
+		epsVideoNfoInfo, err := decode.GetVideoNfoInfo4OneSeriesEpisode(videoListAdd.PhysicalVideoFileFullPath)
 		if err != nil {
 			return
 		}
@@ -60,8 +64,8 @@ func (cb *ControllerBase) AddJobHandler(c *gin.Context) {
 			err = errors.New(fmt.Sprintf("decode.GetSeriesDirRootFPath == Empty, %s", videoListAdd.PhysicalVideoFileFullPath))
 			return
 		}
-		nowJob.Season = torrentInfo.Season
-		nowJob.Episode = torrentInfo.Episode
+		nowJob.Season = epsVideoNfoInfo.Season
+		nowJob.Episode = epsVideoNfoInfo.Episode
 		nowJob.SeriesRootDirPath = seriesInfoDirPath
 	}
 
@@ -70,12 +74,12 @@ func (cb *ControllerBase) AddJobHandler(c *gin.Context) {
 		return
 	}
 	if bok == false {
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			JobID:   nowJob.Id,
 			Message: "job is already in queue",
 		})
 	} else {
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			JobID:   nowJob.Id,
 			Message: "ok",
 		})
@@ -92,7 +96,7 @@ func (cb *ControllerBase) GetJobStatusHandler(c *gin.Context) {
 
 	jobID := c.DefaultQuery("job_id", "")
 	if jobID == "" {
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "job_id is empty",
 		})
 		return
@@ -100,14 +104,14 @@ func (cb *ControllerBase) GetJobStatusHandler(c *gin.Context) {
 
 	found, nowOneJob := cb.cronHelper.DownloadQueue.GetOneJobByID(jobID)
 	if found == false {
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			JobID:   jobID,
 			Message: "job not found",
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, backend.ReplyJobThings{
+	c.JSON(http.StatusOK, backend2.ReplyJobThings{
 		JobID:     jobID,
 		JobStatus: nowOneJob.JobStatus,
 		Message:   "ok",
@@ -122,15 +126,15 @@ func (cb *ControllerBase) AddVideoPlayedInfoHandler(c *gin.Context) {
 		cb.ErrorProcess(c, "AddVideoPlayedInfoHandler", err)
 	}()
 
-	videoPlayedInfo := backend.ReqVideoPlayedInfo{}
+	videoPlayedInfo := backend2.ReqVideoPlayedInfo{}
 	err = c.ShouldBindJSON(&videoPlayedInfo)
 	if err != nil {
 		return
 	}
 	// 这里视频文件得要存在
-	if my_util.IsFile(videoPlayedInfo.PhysicalVideoFileFullPath) == false {
+	if pkg.IsFile(videoPlayedInfo.PhysicalVideoFileFullPath) == false {
 
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "physical video file not found",
 		})
 		return
@@ -138,9 +142,9 @@ func (cb *ControllerBase) AddVideoPlayedInfoHandler(c *gin.Context) {
 	// 查询字幕是否存在
 	videoDirFPath := filepath.Dir(videoPlayedInfo.PhysicalVideoFileFullPath)
 	subFileFullPath := filepath.Join(videoDirFPath, videoPlayedInfo.SubName)
-	if my_util.IsFile(subFileFullPath) == false {
+	if pkg.IsFile(subFileFullPath) == false {
 
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "sub file not found",
 		})
 		return
@@ -161,7 +165,7 @@ func (cb *ControllerBase) AddVideoPlayedInfoHandler(c *gin.Context) {
 		dao.GetDb().Save(&videoPlayedInfos[0])
 	}
 
-	c.JSON(http.StatusOK, backend.ReplyJobThings{
+	c.JSON(http.StatusOK, backend2.ReplyJobThings{
 		Message: "ok",
 	})
 }
@@ -174,15 +178,15 @@ func (cb *ControllerBase) DelVideoPlayedInfoHandler(c *gin.Context) {
 		cb.ErrorProcess(c, "DelVideoPlayedInfoHandler", err)
 	}()
 
-	videoPlayedInfo := backend.ReqVideoPlayedInfo{}
+	videoPlayedInfo := backend2.ReqVideoPlayedInfo{}
 	err = c.ShouldBindJSON(&videoPlayedInfo)
 	if err != nil {
 		return
 	}
 	// 这里视频文件得要存在
-	if my_util.IsFile(videoPlayedInfo.PhysicalVideoFileFullPath) == false {
+	if pkg.IsFile(videoPlayedInfo.PhysicalVideoFileFullPath) == false {
 
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "physical video file not found",
 		})
 		return
@@ -192,7 +196,7 @@ func (cb *ControllerBase) DelVideoPlayedInfoHandler(c *gin.Context) {
 	dao.GetDb().Where("physical_video_file_full_path = ?", videoPlayedInfo.PhysicalVideoFileFullPath).Find(&videoPlayedInfos)
 	if len(videoPlayedInfos) == 0 {
 		// 没有则也返回成功
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "ok",
 		})
 		return
@@ -200,7 +204,7 @@ func (cb *ControllerBase) DelVideoPlayedInfoHandler(c *gin.Context) {
 	} else {
 		// 有则更新，因为这个物理路径是主键，所以不用担心会查询出多个
 		dao.GetDb().Delete(&videoPlayedInfos[0])
-		c.JSON(http.StatusOK, backend.ReplyJobThings{
+		c.JSON(http.StatusOK, backend2.ReplyJobThings{
 			Message: "ok",
 		})
 		return

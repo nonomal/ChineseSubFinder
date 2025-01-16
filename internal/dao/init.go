@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/allanpk716/ChineseSubFinder/internal/models"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/my_folder"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/my_util"
+	"gorm.io/gorm/logger"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -45,7 +47,7 @@ func DeleteDbFile() error {
 	// 如果是 Linux 则在 /config 目录下
 	nowDbFileName := getDbName()
 
-	if my_util.IsFile(nowDbFileName) == true {
+	if pkg.IsFile(nowDbFileName) == true {
 		return os.Remove(nowDbFileName)
 	}
 	return nil
@@ -58,18 +60,24 @@ func InitDb() error {
 	nowDbFileName := getDbName()
 
 	dbDir := filepath.Dir(nowDbFileName)
-	if my_util.IsDir(dbDir) == false {
+	if pkg.IsDir(dbDir) == false {
 		_ = os.MkdirAll(dbDir, os.ModePerm)
 	}
 	db, err = gorm.Open(sqlite.Open(nowDbFileName), &gorm.Config{})
 	if err != nil {
 		return errors.New(fmt.Sprintf("failed to connect database, %s", err.Error()))
 	}
+	// 降低 gorm 的日志级别
+	db.Logger = logger.Default.LogMode(logger.Silent)
 	// 迁移 schema
 	err = db.AutoMigrate(&models.HotFix{}, &models.SubFormatRec{},
 		&models.IMDBInfo{}, &models.VideoSubInfo{},
 		&models.ThirdPartSetVideoPlayedInfo{},
-		&models.MediaInfo{})
+		&models.MediaInfo{},
+		&models.LowVideoSubInfo{},
+		&models.Info{},
+		&models.SkipScanInfo{},
+	)
 	if err != nil {
 		return errors.New(fmt.Sprintf("db AutoMigrate error, %s", err.Error()))
 	}
@@ -78,7 +86,7 @@ func InitDb() error {
 }
 
 func getDbName() string {
-	return filepath.Join(my_folder.GetConfigRootDirFPath(), dbFileName)
+	return filepath.Join(pkg.GetConfigRootDirFPath(), dbFileName)
 }
 
 var (

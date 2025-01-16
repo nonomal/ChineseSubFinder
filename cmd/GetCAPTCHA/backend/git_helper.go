@@ -2,17 +2,20 @@ package backend
 
 import (
 	"fmt"
-	"github.com/allanpk716/ChineseSubFinder/cmd/GetCAPTCHA/backend/config"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/my_util"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/something_static"
-	"github.com/allanpk716/ChineseSubFinder/internal/types/common"
+	"os"
+	"time"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/types/common"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/cmd/GetCAPTCHA/backend/config"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/something_static"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/sirupsen/logrus"
 	sshOrg "golang.org/x/crypto/ssh"
-	"os"
-	"time"
 )
 
 func GitProcess(log *logrus.Logger, config config.Config, enString string) error {
@@ -32,7 +35,7 @@ func GitProcess(log *logrus.Logger, config config.Config, enString string) error
 
 	var r *git.Repository
 	var w *git.Worktree
-	if my_util.IsDir(config.CloneProjectDesSaveDir) == true {
+	if pkg.IsDir(config.CloneProjectDesSaveDir) == true {
 		// 需要 pull
 		log.Infoln("Pull Start...")
 		r, err = git.PlainOpen(config.CloneProjectDesSaveDir)

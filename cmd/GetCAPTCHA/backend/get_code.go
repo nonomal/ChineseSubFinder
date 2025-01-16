@@ -3,11 +3,12 @@ package backend
 import (
 	b64 "encoding/base64"
 	"errors"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/rod_helper"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/sirupsen/logrus"
+	"github.com/allanpk716/rod_helper"
 	"regexp"
 	"strings"
+
+	"github.com/go-rod/rod/lib/proto"
+	"github.com/sirupsen/logrus"
 )
 
 func GetCode(log *logrus.Logger, codeUrl string) (string, error) {
@@ -17,14 +18,14 @@ func GetCode(log *logrus.Logger, codeUrl string) (string, error) {
 	}()
 
 	log.Infoln("Start Get Code...")
-	browser, err := rod_helper.NewBrowser(log, "", "", false)
+	browser, err := rod_helper.NewBrowserBase("", "", "", false, true)
 	if err != nil {
 		return "", err
 	}
 	defer func() {
-		_ = browser.Close()
+		browser.Close()
 	}()
-	page, err := browser.Page(proto.TargetCreateTarget{URL: codeUrl})
+	page, err := browser.Browser.Page(proto.TargetCreateTarget{URL: codeUrl})
 	if err != nil {
 		return "", err
 	}

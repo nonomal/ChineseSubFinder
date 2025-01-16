@@ -2,17 +2,20 @@ package main
 
 import (
 	"fmt"
-	"github.com/allanpk716/ChineseSubFinder/cmd/GetCAPTCHA/backend"
-	"github.com/allanpk716/ChineseSubFinder/cmd/GetCAPTCHA/backend/config"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/global_value"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/log_helper"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/my_util"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/notify_center"
-	"github.com/allanpk716/ChineseSubFinder/internal/pkg/settings"
-	"github.com/robfig/cron/v3"
-	"github.com/sirupsen/logrus"
 	"path/filepath"
 	"time"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/random_auth_key"
+
+	"github.com/ChineseSubFinder/ChineseSubFinder/cmd/GetCAPTCHA/backend"
+	"github.com/ChineseSubFinder/ChineseSubFinder/cmd/GetCAPTCHA/backend/config"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/log_helper"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/notify_center"
+	"github.com/ChineseSubFinder/ChineseSubFinder/pkg/settings"
+	"github.com/robfig/cron/v3"
+	"github.com/sirupsen/logrus"
 )
 
 func newLog() *logrus.Logger {
@@ -20,13 +23,13 @@ func newLog() *logrus.Logger {
 	// --------------------------------------------------
 	// 之前是读取配置文件，现在改为，读取当前目录下，是否有一个特殊的文件，有则启动 Debug 日志级别
 	// 那么怎么写入这个文件，就靠额外的逻辑控制了
-	if my_util.IsFile(filepath.Join(global_value.ConfigRootDirFPath(), log_helper.DebugFileName)) == true {
+	if pkg.IsFile(filepath.Join(pkg.ConfigRootDirFPath(), log_helper.DebugFileName)) == true {
 		level = logrus.DebugLevel
 	} else {
 		level = logrus.InfoLevel
 	}
 	logger := log_helper.NewLogHelper(log_helper.LogNameGetCAPTCHA,
-		global_value.ConfigRootDirFPath(),
+		pkg.ConfigRootDirFPath(),
 		level, time.Duration(7*24)*time.Hour, time.Duration(24)*time.Hour)
 	logger.AddHook(log_helper.NewLoggerHub())
 
@@ -92,9 +95,30 @@ func Process(proxySettings *settings.ProxySettings) error {
 		}
 
 		notify_center.Notify.Send()
+
+		err = pkg.ClearRodTmpRootFolder()
+		if err != nil {
+			loggerBase.Errorln(err.Error())
+			return
+		}
+		loggerBase.Infoln("ClearRodTmpRootFolder OK")
 	}()
 
 	loggerBase.Infoln("-----------------------------------------")
+
+	if pkg.ReadCustomAuthFile(loggerBase) == false {
+		return fmt.Errorf("ReadCustomAuthFile failed")
+	}
+	AuthKey := random_auth_key.AuthKey{
+		BaseKey:  pkg.BaseKey(),
+		AESKey16: pkg.AESKey16(),
+		AESIv16:  pkg.AESIv16(),
+	}
+	randomAuthKey := random_auth_key.NewRandomAuthKey(5, AuthKey)
+	nowAuthKey, err := randomAuthKey.GetAuthKey()
+	if err != nil {
+		return err
+	}
 
 	codeB64, err := backend.GetCode(loggerBase, config.GetConfig().DesURL)
 	if err != nil {
@@ -106,17 +130,22 @@ func Process(proxySettings *settings.ProxySettings) error {
 		return err
 	}
 
+	loggerBase.Infoln("try to upload code to web api")
 	nowTT := time.Now()
 	nowTime := nowTT.Format("2006-01-02")
 	nowTimeFileNamePrix := fmt.Sprintf("%d%d%d", nowTT.Year(), nowTT.Month(), nowTT.Day())
-	httpClient, err := my_util.NewHttpClient(proxySettings)
+	httpClient, err := pkg.NewHttpClient("")
 	if err != nil {
 		return err
 	}
+
+	loggerBase.Infoln("PostUrl:", config.GetConfig().PostUrl)
+
 	var codeReply CodeReply
-	_, err = httpClient.R().
-		SetHeader("Authorization", "beer "+config.GetConfig().AuthToken).
+	resp, err := httpClient.R().
+		SetHeader("Authorization", "beer "+nowAuthKey).
 		SetBody(CodeReq{
+			UploadToken:         config.GetConfig().AuthToken,
 			EnCodeString:        codeB64,
 			NowTime:             nowTime,
 			NowTimeFileNamePrix: nowTimeFileNamePrix,
@@ -127,12 +156,21 @@ func Process(proxySettings *settings.ProxySettings) error {
 		return err
 	}
 
+	loggerBase.Infoln("PostUrl Resp StatusCode:", resp.StatusCode())
+
+	if codeReply.Status == 0 {
+		return fmt.Errorf("codeReply.Status == 0", "codeReply.Message:", codeReply.Message)
+	}
+
+	loggerBase.Infoln("upload code to web api done")
+
 	return nil
 }
 
 var loggerBase *logrus.Logger
 
 type CodeReq struct {
+	UploadToken         string `json:"upload_token"`
 	EnCodeString        string `json:"en_code_string"`
 	NowTime             string `json:"now_time"`
 	NowTimeFileNamePrix string `json:"now_time_file_name_prix"`
